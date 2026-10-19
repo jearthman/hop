@@ -149,9 +149,8 @@ final class SwitcherController: NSObject, NSTextFieldDelegate, NSTableViewDataSo
         background.material = .popover
         background.blendingMode = .behindWindow
         background.state = .active
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 16
-        background.layer?.masksToBounds = true
+        // The behind-window blur ignores layer clipping; only a mask image rounds it (and the shadow).
+        background.maskImage = Self.roundedMask(radius: 16)
         panel.contentView = background
 
         glass.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
@@ -199,6 +198,18 @@ final class SwitcherController: NSObject, NSTextFieldDelegate, NSTableViewDataSo
         for view in [glass, field, separator, scroll, emptyLabel] as [NSView] {
             background.addSubview(view)
         }
+    }
+
+    private static func roundedMask(radius: CGFloat) -> NSImage {
+        let edge = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
     }
 
     // MARK: - Show / hide
@@ -302,6 +313,7 @@ final class SwitcherController: NSObject, NSTextFieldDelegate, NSTableViewDataSo
         let height = headerHeight + listHeight
 
         panel.setFrame(NSRect(x: anchor.x, y: anchor.y - height, width: width, height: height), display: true)
+        panel.invalidateShadow()
 
         glass.frame = NSRect(x: 20, y: height - 38, width: 22, height: 22)
         field.frame = NSRect(x: 52, y: height - 43, width: width - 72, height: 30)

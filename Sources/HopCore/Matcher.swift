@@ -88,8 +88,9 @@ public enum Matcher {
         return false
     }
 
-    /// Best-alignment subsequence score, O(query × text).
-    /// Rewards word-boundary hits and consecutive runs; each skipped character costs 1.
+    /// Scores a match that is either a contiguous substring of `text`, or a series of runs
+    /// that each start at a word boundary ("vsc", "goch"). Letters scattered mid-word
+    /// ("finder" across "fi·rst wi·nd·ow switch·er") don't count as a match.
     static func fuzzyScore(_ q: [Character], _ text: [Character]) -> Int? {
         let n = text.count, m = q.count
         guard m > 0, m <= n else { return m == 0 ? 0 : nil }
@@ -100,6 +101,24 @@ public enum Matcher {
         guard qi == m else { return nil }
 
         let bound = boundaries(text)
+        if let chunked = chunkScore(q, lowered, bound) { return chunked }
+        return substringScore(q, lowered)
+    }
+
+    /// Mid-word substring ("term" in "intermediate"): ranks below boundary matches of the same length.
+    private static func substringScore(_ q: [Character], _ lowered: [Character]) -> Int? {
+        let m = q.count
+        guard lowered.count >= m else { return nil }
+        for start in 0...(lowered.count - m) where Array(lowered[start..<start + m]) == q {
+            return 10 + 20 * (m - 1) - min(start, 15)
+        }
+        return nil
+    }
+
+    /// Best alignment where every run of matched characters starts at a word boundary,
+    /// O(query × text). Rewards boundary hits and consecutive runs; each skipped character costs 1.
+    private static func chunkScore(_ q: [Character], _ lowered: [Character], _ bound: [Bool]) -> Int? {
+        let n = lowered.count, m = q.count
         let neg = Int.min / 4
         let valid = neg / 2
         var prev = [Int](repeating: neg, count: n)
@@ -114,11 +133,12 @@ public enum Matcher {
                 guard lowered[j] == q[i] else { continue }
                 let bonus = 10 + (bound[j] ? 30 : 0)
                 if i == 0 {
-                    cur[j] = bonus - min(j, 15)
+                    if bound[j] { cur[j] = bonus - min(j, 15) }
                 } else {
                     var best = neg
                     if j >= 1 && prev[j - 1] > valid { best = prev[j - 1] + 20 }
-                    if gapBest > valid { best = max(best, gapBest) }
+                    // Jumping ahead is only allowed onto the start of a word.
+                    if bound[j] && gapBest > valid { best = max(best, gapBest) }
                     if best > valid { cur[j] = best + bonus }
                 }
             }

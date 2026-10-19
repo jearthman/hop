@@ -59,9 +59,28 @@ final class MatcherTests: XCTestCase {
         XCTAssertEqual(Matcher.initials(Array("Safari · Login")), "sl")
     }
 
-    func testConsecutiveBeatsScattered() {
-        let a = Matcher.fuzzyScore(Array("code"), Array("Xcode"))!
-        let b = Matcher.fuzzyScore(Array("code"), Array("Chocolade"))!
-        XCTAssertGreaterThan(a, b)
+    func testMidWordSubstringMatches() {
+        XCTAssertNotNil(Matcher.fuzzyScore(Array("code"), Array("Xcode")))
+        XCTAssertNotNil(Matcher.score(query: "book", appName: "Safari", title: "Facebook"))
+    }
+
+    func testScatteredLettersDoNotMatch() {
+        XCTAssertNil(Matcher.fuzzyScore(Array("code"), Array("Chocolade")))
+        // Regression: "finder" used to match f·i…n·d…e·r spread across this Chrome title.
+        XCTAssertNil(Matcher.score(query: "finder", appName: "Google Chrome",
+                                   title: "Panehop, the search-first window switcher for macOS - Google Chrome - James"))
+        let items = [W(app: "Google Chrome", title: "Panehop, the search-first window switcher for macOS"),
+                     W(app: "Finder", title: "Chrome Apps")]
+        XCTAssertEqual(ranked(items, "finder"), ["Finder|Chrome Apps"])
+    }
+
+    func testWordStartChunksMatch() {
+        XCTAssertNotNil(Matcher.score(query: "goch", appName: "Google Chrome", title: ""))
+        XCTAssertNotNil(Matcher.score(query: "chrapp", appName: "Finder", title: "Chrome Apps"))
+    }
+
+    func testBoundaryMatchBeatsMidWordSubstring() {
+        let items = [W(app: "Notes", title: "Barcode"), W(app: "Notes", title: "Code review")]
+        XCTAssertEqual(ranked(items, "code"), ["Notes|Code review", "Notes|Barcode"])
     }
 }
