@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Tests, builds a universal Hop.app, signs it and packages build/Hop-<version>.dmg.
+# Tests, builds a universal Hop.app, signs it and packages build/Hop-<version>.dmg
+# (manual installs) and build/Hop-<version>.zip (in-app updates).
 #
-#   ./build.sh                                  ad-hoc signed (personal use)
+#   ./build.sh                                  signs with the identity scripts/signing-identity.sh
+#                                               picks (Apple Development preferred), else ad-hoc
 #   SIGN_ID="Developer ID Application: …" ./build.sh
 #   SIGN_ID=… NOTARY_PROFILE=hop ./build.sh     also notarize + staple the DMG
 #   VERSION=1.1.0 ./build.sh
@@ -13,11 +15,19 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/build"
 APP="$OUT/Hop.app"
 DMG="$OUT/Hop-$VERSION.dmg"
+ZIP="$OUT/Hop-$VERSION.zip"
 STAGE="$OUT/dmg-stage"
 ARCHS=(--arch arm64 --arch x86_64)
 
 cd "$ROOT"
 mkdir -p "$OUT"
+
+SIGN_ID="$(scripts/signing-identity.sh)"
+SIGN_NAME="ad-hoc"
+if [[ -n "$SIGN_ID" ]]; then
+  SIGN_NAME="$(security find-identity -v -p codesigning | grep -F "$SIGN_ID" | sed -E 's/.*"(.*)".*/\1/' | head -1)"
+  SIGN_NAME="${SIGN_NAME:-$SIGN_ID}"
+fi
 
 echo "==> Running tests"
 swift test
@@ -41,7 +51,7 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" Resources/Info.
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-echo "==> Signing"
+echo "==> Signing ($SIGN_NAME)"
 if [[ -n "${SIGN_ID:-}" ]]; then
   TIMESTAMP=()
   [[ -n "${NOTARY_PROFILE:-}" ]] && TIMESTAMP=(--timestamp)
@@ -69,6 +79,19 @@ if [[ -n "${SIGN_ID:-}" ]]; then
 fi
 
 hdiutil verify "$DMG" >/dev/null
+
+echo "==> Creating update archive"
+# In-app updates download this zip; the DMG is for manual installs.
+rm -f "$ZIP"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+ARCHS_BUILT="$(lipo -archs "$APP/Contents/MacOS/Hop")"
+
+# Keep only the DMG so Spotlight and Launch Services don't offer a second copy of Hop.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+rm -rf "$APP"
+
 echo
-echo "Built $(lipo -archs "$APP/Contents/MacOS/Hop") Hop $VERSION ($BUILD_NUMBER)"
+echo "Built $ARCHS_BUILT Hop $VERSION ($BUILD_NUMBER), signed $SIGN_NAME"
 echo "DMG: $DMG"
+echo "ZIP: $ZIP"

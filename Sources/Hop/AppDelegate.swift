@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let catalog = WindowCatalog()
     private lazy var switcher = SwitcherController(catalog: catalog)
     private let focusTracker = FocusTracker()
+    private let updater = Updater()
     private var hotKey: HotKey?
     private var statusItem: NSStatusItem!
     private var trustTimer: Timer?
@@ -31,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         focusTracker.onFocusedWindow = { [weak self] window in
             self?.catalog.noteFocused(window: window)
         }
+
+        updater.start()
 
         if AX.isTrusted(prompt: true) {
             startTracking()
@@ -123,10 +126,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(login)
         menu.addItem(.separator())
 
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        let about = NSMenuItem(title: "Hop \(version)", action: nil, keyEquivalent: "")
+        let about = NSMenuItem(title: "Hop \(Updater.currentVersionString)", action: nil, keyEquivalent: "")
         about.isEnabled = false
         menu.addItem(about)
+
+        let updateTitle = updater.available.map { "Update to Hop \($0.version)…" } ?? "Check for Updates…"
+        let update = NSMenuItem(title: updateTitle, action: #selector(checkForUpdates), keyEquivalent: "")
+        update.target = self
+        menu.addItem(update)
 
         let quit = NSMenuItem(title: "Quit Hop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -135,6 +142,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSwitcher() {
         // Let the status menu finish closing before taking focus.
         DispatchQueue.main.async { MainActor.assumeIsolated { self.hotKeyPressed() } }
+    }
+
+    @objc private func checkForUpdates() {
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.updater.check(userInitiated: true) } }
     }
 
     @objc private func openAccessibilitySettings() {
